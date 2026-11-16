@@ -494,9 +494,9 @@ function toolHtml(s) {
   }
   if (r && r.error) title += ` · <span class="error">failed: ${esc(r.error)}</span>`;
   else if (!r && s.kind !== "tool_result") title += ' <span class="muted">…</span>';
-  const open = /code/.test(s.name) ? " open" : "";
+  // Collapsed by default: one line per step, click to see the code or results.
   return body
-    ? `<details class="step-tool" data-i="${s.i}"${open}><summary>${title}</summary>${body}</details>`
+    ? `<details class="step-tool" data-i="${s.i}"><summary>${title}</summary>${body}</details>`
     : `<div class="step-tool" data-i="${s.i}">${title}</div>`;
 }
 
