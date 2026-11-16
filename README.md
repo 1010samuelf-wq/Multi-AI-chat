@@ -8,7 +8,8 @@ Ask a question once. Two Claude models take turns: one answers, the other checks
 - **Agreement rules** that discourage polite agreement: every reply has a claim-by-claim *Check*, a full *Answer*, and a `VERDICT: AGREE/DISAGREE`. An AI may only change its position for a concrete reason (a source, a calculation, a logic error).
 - **Limits**: maximum turns and a spending cap for each question. The cost is shown live.
 - **Notes**: type in the message box during a debate and both AIs get it on their next turn.
-- **History**: past chats are saved, with the full process, and can be reopened.
+- **Follow-ups**: after a chat finishes, keep typing to ask a follow-up in the same chat. Both AIs get the whole conversation so far (questions, checks, answers) and fact-check the new question the same way. **＋ New chat** starts fresh. The spending cap applies to each follow-up.
+- **History**: past chats are saved, with the full process, and can be reopened and continued.
 - **Accounts**: a sign-in page, with a separate account for each person. Everyone sees only their own chats. Admins add and remove users, reset passwords, and see what each person has spent.
 - **API key on the website**: an admin pastes the Claude API key under *their name → API key*. It's checked with Anthropic, saved on the app's private storage, never shown again, and shared by all accounts.
 - The model choice, who answers first, and the limits are behind the **⚙ Options** button under the message box.

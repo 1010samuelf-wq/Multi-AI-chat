@@ -77,10 +77,41 @@ def _handoff(other_name: str, result: TurnResult, verb: str) -> str:
     return "\n\n".join(parts)
 
 
+TRANSCRIPT_TURN_CHARS = 6000
+TRANSCRIPT_TOTAL_CHARS = 60000
+
+
+def build_transcript(events: list[dict]) -> str:
+    """The conversation so far as plain text, for follow-up questions."""
+    names = {}
+    parts: list[str] = []
+    for e in events:
+        t = e["type"]
+        if t in ("start", "followup"):
+            names = {k: v["name"] for k, v in (e.get("agents") or {}).items()} or names
+            label = "User's question" if t == "start" else "User's follow-up question"
+            parts.append(f"### {label}\n{e['question']}")
+        elif t == "user_note":
+            parts.append(f"### User's note\n{e['text']}")
+        elif t == "turn_end" and e.get("text"):
+            who = names.get(e["agent"], f"Claude {e['agent']}")
+            text = e["text"]
+            if len(text) > TRANSCRIPT_TURN_CHARS:
+                text = text[:TRANSCRIPT_TURN_CHARS] + "\n[…cut for length]"
+            parts.append(f"### {who} (turn {e['turn']}, {e.get('verdict') or 'no verdict'})\n{text}")
+        elif t == "end":
+            parts.append(f"### Outcome\n{e.get('message', '')}")
+    text = "\n\n".join(parts)
+    if len(text) > TRANSCRIPT_TOTAL_CHARS:
+        text = "[…earlier parts cut for length]\n\n" + text[-TRANSCRIPT_TOTAL_CHARS:]
+    return text
+
+
 class Debate:
     def __init__(self, runner, question: str, settings: dict, files: list[dict],
-                 user_id: int | None = None):
-        self.id = uuid.uuid4().hex[:12]
+                 user_id: int | None = None, resume: dict | None = None):
+        """A new chat, or with `resume` (a saved chat) a follow-up question in it."""
+        self.id = resume["id"] if resume else uuid.uuid4().hex[:12]
         self.runner = runner
         self.question = question
         self.settings = settings
@@ -111,7 +142,20 @@ class Debate:
         # with the turn so a finished chat shows everything that happened.
         self.cur_turn: dict | None = None
         self.cur_steps: list[dict] = []
-        store.create_debate(self.id, question, {**settings, "files": files}, user_id)
+        if resume:
+            prior = store.get_events(self.id)
+            self.seq = prior[-1]["seq"] + 1 if prior else 0
+            self.turn_offset = sum(1 for e in prior if e["type"] == "turn_end")
+            self.context = build_transcript(prior)
+            self.cost = resume["cost_usd"] or 0.0
+            store.update_debate(self.id, status="running")
+        else:
+            self.turn_offset = 0
+            self.context = ""
+            store.create_debate(self.id, question, {**settings, "files": files}, user_id)
+        self.is_followup = bool(resume)
+        self.first_seq = self.seq  # events before this are in the database only
+        self.start_cost = self.cost
 
     # ---- events -------------------------------------------------------------
 
@@ -170,7 +214,7 @@ class Debate:
         s = self.settings
         order = [s["first"], "B" if s["first"] == "A" else "A"]
         await self.emit({
-            "type": "start",
+            "type": "followup" if self.is_followup else "start",
             "question": self.question,
             "files": self.files,
             "agents": {k: {"name": a.name, "model": a.model, "label": MODELS[a.model]["label"]}
@@ -183,7 +227,7 @@ class Debate:
         for turn in range(s["max_turns"]):
             if self.stop_requested:
                 return await self._finish("stopped", last, "Stopped by you.")
-            if self.cost >= s["budget_usd"]:
+            if self.cost - self.start_cost >= s["budget_usd"]:
                 return await self._finish("budget", last,
                                           f"Stopped: the spending cap of ${s['budget_usd']:.2f} was reached.")
 
@@ -198,8 +242,9 @@ class Debate:
                 task = f"Checking {other.name}'s answer"
             else:
                 task = f"Checking {other.name}'s reply"
-            self.cur_turn, self.cur_steps = {"agent": key, "turn": turn + 1}, []
-            await self.emit({"type": "turn_start", "agent": key, "turn": turn + 1,
+            n = self.turn_offset + turn + 1  # turn numbers continue across follow-ups
+            self.cur_turn, self.cur_steps = {"agent": key, "turn": n}, []
+            await self.emit({"type": "turn_start", "agent": key, "turn": n,
                              "name": agent.name, "model": agent.model, "task": task})
             result = await self.runner.run_turn(agent, content, self.emit)
             self.cost += result.cost_usd
@@ -209,7 +254,7 @@ class Debate:
             elif verdict not in ("AGREE", "DISAGREE"):
                 verdict = "DISAGREE"  # unclear or cut off: keep checking
             await self.emit({
-                "type": "turn_end", "agent": key, "turn": turn + 1, "text": result.text,
+                "type": "turn_end", "agent": key, "turn": n, "text": result.text,
                 "steps": self._take_steps(),
                 "verdict": verdict, "sources": result.sources, "files": result.files,
                 "turn_cost": result.cost_usd, "total_cost": self.cost, "error": result.error,
@@ -235,7 +280,15 @@ class Debate:
         text_parts: list[str] = []
         if not agent.messages:  # this agent's first turn: give it the question and files
             blocks.extend(file_blocks(self.files))
-            text_parts.append(f"The user's question:\n{self.question}")
+            if self.context:
+                text_parts.append(
+                    "This is a follow-up in an ongoing conversation. Here is everything so far, "
+                    "including both of your earlier answers and checks. Use it as context, but "
+                    "treat the new question on its own merits and verify new claims.\n<<<\n"
+                    f"{self.context}\n>>>")
+                text_parts.append(f"The user's follow-up question:\n{self.question}")
+            else:
+                text_parts.append(f"The user's question:\n{self.question}")
             if self.files:
                 text_parts.append("Attached files (also in your sandbox): "
                                   + ", ".join(f["filename"] for f in self.files))

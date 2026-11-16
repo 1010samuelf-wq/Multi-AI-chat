@@ -102,3 +102,43 @@ async def test_stop():
     d.stop()
     await d.task
     assert d.events[-1]["status"] == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_followup_continues_the_chat_with_context():
+    from app import store
+    d = Debate(MockRunner(), "First question?", dict(SETTINGS), [])
+    await d.run()
+    saved = store.get_debate(d.id)
+    assert saved["status"] == "agreed"
+
+    seen = {}
+
+    class Spy(MockRunner):
+        async def run_turn(self, agent, content, emit):
+            seen.setdefault(agent.key, []).append(content[-1]["text"])
+            return await super().run_turn(agent, content, emit)
+
+    f = Debate(Spy(), "And a follow-up?", dict(SETTINGS), [], resume=saved)
+    assert f.id == d.id and f.first_seq == d.seq
+    await f.run()
+    events = store.get_events(d.id)
+    assert [e["seq"] for e in events] == sorted({e["seq"] for e in events})  # no clashes
+    turns = [e["turn"] for e in events if e["type"] == "turn_end"]
+    assert turns == [1, 2, 3, 4, 5, 6]  # numbering continues
+    assert [e["type"] for e in events].count("followup") == 1
+    first_msg = seen["A"][0]
+    assert "First question?" in first_msg and "And a follow-up?" in first_msg
+    assert "follow-up" in first_msg and "41" in first_msg  # earlier agreed answer is in context
+    assert store.get_debate(d.id)["status"] == "agreed"
+
+
+@pytest.mark.asyncio
+async def test_followup_budget_counts_only_the_new_round():
+    from app import store
+    d = Debate(NeverAgree(), "Q", {**SETTINGS, "max_turns": 4}, [])
+    await d.run()  # spends 0.40
+    f = Debate(NeverAgree(), "Q2", {**SETTINGS, "budget_usd": 0.25}, [], resume=store.get_debate(d.id))
+    await f.run()
+    new_turns = [e for e in f.events if e["type"] == "turn_end"]
+    assert len(new_turns) == 3 and f.events[-1]["status"] == "budget"

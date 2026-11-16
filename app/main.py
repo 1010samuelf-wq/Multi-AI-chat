@@ -247,8 +247,7 @@ def owned_live(debate_id: str, user: dict):
 
 # ---- debates ------------------------------------------------------------------
 
-@app.post("/api/debates")
-async def create_debate(body: NewDebate, user: dict = Depends(current_user)):
+def clean_settings(body: "NewDebate") -> dict:
     if body.model_a not in MODELS or body.model_b not in MODELS:
         raise HTTPException(400, "Unknown model")
     if body.first not in ("A", "B"):
@@ -263,10 +262,33 @@ async def create_debate(body: NewDebate, user: dict = Depends(current_user)):
         "effort": body.effort,
         "budget_usd": max(0.05, min(body.budget_usd, MAX_BUDGET_LIMIT)),
     }
+    return settings
+
+
+@app.post("/api/debates")
+async def create_debate(body: NewDebate, user: dict = Depends(current_user)):
+    settings = clean_settings(body)
     debate = Debate(runner(), body.question.strip(), settings, [f.model_dump() for f in body.files],
                     user_id=user["id"])
     registry.start(debate)
     return {"id": debate.id}
+
+
+@app.post("/api/debates/{debate_id}/followup")
+async def followup(debate_id: str, body: NewDebate, user: dict = Depends(current_user)):
+    """Ask a follow-up in an existing chat. Both AIs get the conversation so far."""
+    saved = owned_debate(debate_id, user)
+    live = registry.get(debate_id)
+    if (live and live.status == "running") or saved["status"] == "running":
+        raise HTTPException(409, "This chat is still running. Wait for it to finish or stop it.")
+    settings = clean_settings(body)
+    # Files from the first question stay available, plus any added now.
+    files = saved["settings"].get("files", []) + [f.model_dump() for f in body.files]
+    store.update_debate(debate_id, settings=json.dumps({**saved["settings"], "files": files}))
+    debate = Debate(runner(), body.question.strip(), settings, files,
+                    user_id=user["id"], resume=saved)
+    registry.start(debate)
+    return {"id": debate.id, "from_seq": debate.first_seq}
 
 
 @app.get("/api/debates")
@@ -311,14 +333,22 @@ async def add_note(debate_id: str, note: Note, user: dict = Depends(current_user
 
 
 @app.get("/api/debates/{debate_id}/events")
-async def stream_events(debate_id: str, request: Request, user: dict = Depends(current_user)):
-    """Server-sent events: everything so far, then live updates."""
+async def stream_events(debate_id: str, request: Request, after: int = -1,
+                        user: dict = Depends(current_user)):
+    """Server-sent events: everything after `after` so far, then live updates."""
     owned_debate(debate_id, user)
 
     async def gen():
-        sent = -1
+        sent = after
         while True:
             live = registry.get(debate_id)
+            if live is not None and sent < live.first_seq - 1:
+                # Earlier rounds of this chat are only in the database.
+                for ev in store.get_events(debate_id, after=sent):
+                    if ev["seq"] >= live.first_seq:
+                        break
+                    yield f"data: {json.dumps(ev)}\n\n"
+                sent = live.first_seq - 1
             if live is None:
                 # Finished (or from before a restart): replay what was saved.
                 for ev in store.get_events(debate_id, after=sent):
@@ -329,7 +359,8 @@ async def stream_events(debate_id: str, request: Request, user: dict = Depends(c
             for ev in pending:
                 yield f"data: {json.dumps(ev)}\n\n"
                 sent = ev["seq"]
-                if ev["type"] == "end":
+                if ev["type"] == "end" and ev["seq"] >= live.first_seq:
+                    yield 'data: {"type": "replay_done"}\n\n'
                     return
             if await request.is_disconnected():
                 return
