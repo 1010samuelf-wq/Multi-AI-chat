@@ -22,7 +22,18 @@ Turn 3  the first one checks that reply               → AGREE ends it, DISAGRE
 
 Each AI keeps its own conversation and its own sandbox. It sees the other's reply text and the sources it cited, and verifies them itself.
 
-## Deploy on Fly.io
+## Deploy on Fly.io with GitHub Actions (no installs needed)
+
+1. In GitHub, open **Settings → Secrets and variables → Actions** and add three repository secrets:
+   - `FLY_API_TOKEN`: a Fly token that can create apps. Create it with `fly tokens create org` (a deploy token for one existing app can't create a new app).
+   - `ANTHROPIC_API_KEY`: your key from the Claude Console.
+   - `APP_PASSWORD`: the password for the website.
+2. Open the **Actions** tab, choose **Deploy to Fly.io**, click **Run workflow**, and check the app name, Fly organization and region.
+3. When the run is green, the site is at `https://<app name>.fly.dev`.
+
+The first run creates the app and its storage volume. Later runs just redeploy.
+
+## Deploy on Fly.io from your computer
 
 You need the [Fly CLI](https://fly.io/docs/flyctl/install/) and an API key from the [Claude Console](https://platform.claude.com) (**Get API key**).
 
