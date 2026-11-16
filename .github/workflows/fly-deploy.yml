@@ -3,8 +3,8 @@
 #
 # Needs these repository secrets (Settings → Secrets and variables → Actions):
 #   FLY_API_TOKEN      a Fly org token that can create apps (fly tokens create org)
-#   ANTHROPIC_API_KEY  your Claude API key
 #   APP_PASSWORD       the password for the website
+# Optional: ANTHROPIC_API_KEY. Otherwise add the key on the website's Settings page.
 name: Deploy to Fly.io
 
 on:
@@ -41,12 +41,10 @@ jobs:
       - name: Check that the secrets are set
         env:
           HAS_FLY: ${{ secrets.FLY_API_TOKEN != '' }}
-          HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
           HAS_PW: ${{ secrets.APP_PASSWORD != '' }}
         run: |
           missing=""
           [ "$HAS_FLY" = "true" ] || missing="$missing FLY_API_TOKEN"
-          [ "$HAS_KEY" = "true" ] || missing="$missing ANTHROPIC_API_KEY"
           [ "$HAS_PW" = "true" ] || missing="$missing APP_PASSWORD"
           if [ -n "$missing" ]; then
             echo "::error::Missing repository secrets:$missing"
@@ -77,9 +75,10 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
         run: |
-          flyctl secrets set --stage --app "$APP" \
-            ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-            APP_PASSWORD="$APP_PASSWORD"
+          flyctl secrets set --stage --app "$APP" APP_PASSWORD="$APP_PASSWORD"
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            flyctl secrets set --stage --app "$APP" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
+          fi
 
       - name: Deploy
         run: flyctl deploy --remote-only --app "$APP" --primary-region "$REGION" --ha=false

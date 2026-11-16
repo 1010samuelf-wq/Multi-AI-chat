@@ -85,10 +85,14 @@ def _reply_text(blocks: list) -> str:
 
 
 class ClaudeRunner:
-    def __init__(self):
+    def __init__(self, api_key: str | None = None):
         import anthropic
 
-        self.client = anthropic.AsyncAnthropic(max_retries=3)
+        self.client = anthropic.AsyncAnthropic(api_key=api_key, max_retries=3)
+
+    async def check_key(self) -> None:
+        """Raises if the key is rejected. A free call: it only reads model info."""
+        await self.client.models.retrieve("claude-opus-5-5")
 
     async def run_turn(self, agent: AgentState, user_content: list, emit: Emit) -> TurnResult:
         import anthropic

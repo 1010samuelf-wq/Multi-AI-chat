@@ -58,6 +58,9 @@ async function init() {
   $("file-input").addEventListener("change", onFiles);
   $("new-form").addEventListener("submit", onStart);
   $("new-btn").addEventListener("click", () => { location.hash = ""; });
+  $("settings-btn").addEventListener("click", () => { location.hash = "settings"; });
+  $("key-form").addEventListener("submit", onSaveKey);
+  $("key-remove").addEventListener("click", onRemoveKey);
   $("menu-btn").addEventListener("click", () => $("sidebar").classList.toggle("open"));
   $("stop-btn").addEventListener("click", onStop);
   $("note-form").addEventListener("submit", onNote);
@@ -69,16 +72,71 @@ async function init() {
 function route() {
   $("sidebar").classList.remove("open");
   const id = location.hash.slice(1);
-  if (id) openDebate(id);
+  if (id === "settings") showSettings();
+  else if (id) openDebate(id);
   else showNew();
 }
 
-function showNew() {
+function showView(name) {
+  for (const v of ["new-view", "debate-view", "settings-view"]) $(v).hidden = v !== name;
+}
+
+async function showNew() {
   closeStream();
   state.current = null;
-  $("new-view").hidden = false;
-  $("debate-view").hidden = true;
+  showView("new-view");
   markActive();
+  try { $("no-key").hidden = (await api("/api/settings")).has_key; } catch (_) {}
+}
+
+async function showSettings() {
+  closeStream();
+  state.current = null;
+  showView("settings-view");
+  markActive();
+  $("key-msg").textContent = "";
+  await refreshKeyStatus();
+}
+
+async function refreshKeyStatus() {
+  const s = await api("/api/settings");
+  const el = $("key-status");
+  if (s.mock) el.innerHTML = '<span class="muted">Demo mode: no key needed.</span>';
+  else if (s.source === "saved") el.innerHTML = `<span class="ok">✓ A key is saved (${esc(s.key_hint)}).</span> Paste a new one below to replace it.`;
+  else if (s.source === "env") el.innerHTML = `<span class="ok">✓ Using the key from the server's settings (${esc(s.key_hint)}).</span> A key saved here takes priority.`;
+  else el.innerHTML = '<span class="error">No key yet.</span>';
+  $("key-remove").hidden = s.source !== "saved";
+}
+
+async function onSaveKey(e) {
+  e.preventDefault();
+  const key = $("api-key").value.trim();
+  if (!key) return;
+  $("key-save").disabled = true;
+  $("key-msg").className = "muted";
+  $("key-msg").textContent = "Checking the key with Anthropic…";
+  try {
+    await api("/api/settings/key", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ anthropic_api_key: key }),
+    });
+    $("api-key").value = "";
+    $("key-msg").className = "ok";
+    $("key-msg").textContent = "Saved. You can ask a question now.";
+    await refreshKeyStatus();
+  } catch (err) {
+    $("key-msg").className = "error";
+    $("key-msg").textContent = err.message;
+  } finally {
+    $("key-save").disabled = false;
+  }
+}
+
+async function onRemoveKey() {
+  if (!confirm("Remove the saved API key?")) return;
+  await api("/api/settings/key", { method: "DELETE" });
+  $("key-msg").textContent = "";
+  await refreshKeyStatus();
 }
 
 // ---------- history ----------
@@ -167,8 +225,7 @@ async function openDebate(id) {
   state.msgEls = {};
   state.agents = {};
   markActive();
-  $("new-view").hidden = true;
-  $("debate-view").hidden = false;
+  showView("debate-view");
   $("messages").innerHTML = "";
   $("final").innerHTML = "";
   $("d-files").innerHTML = "";
