@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-AI Fact Check</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/vendor/marked.min.js"></script>
+<script src="/static/vendor/purify.min.js"></script>
+</head>
+<body>
+<div class="layout">
+  <aside id="sidebar">
+    <div class="brand">Multi-AI Fact Check</div>
+    <button id="new-btn" class="primary wide">+ New question</button>
+    <div class="history-title">History</div>
+    <ul id="history"></ul>
+  </aside>
+
+  <main>
+    <button id="menu-btn" class="menu-btn" aria-label="Show history">☰</button>
+
+    <!-- New debate form -->
+    <section id="new-view">
+      <h1>Ask once, get it fact-checked</h1>
+      <p class="muted">Two Claude models take turns: one answers, the other checks it with search and code, back and forth until they agree.</p>
+      <form id="new-form">
+        <label for="question">Your question</label>
+        <textarea id="question" rows="5" required placeholder="e.g. What were the 5 largest US banks by assets at the end of 2025? Put them in an Excel file."></textarea>
+
+        <label>Files (optional: PDF, Excel, CSV, images…)</label>
+        <div class="files-row">
+          <input type="file" id="file-input" multiple>
+          <ul id="file-list"></ul>
+        </div>
+
+        <div class="grid">
+          <div>
+            <label for="model_a">Claude A</label>
+            <select id="model_a"></select>
+          </div>
+          <div>
+            <label for="model_b">Claude B</label>
+            <select id="model_b"></select>
+          </div>
+          <div>
+            <label>Who answers first?</label>
+            <div class="seg" id="first">
+              <button type="button" data-v="A" class="on">Claude A</button>
+              <button type="button" data-v="B">Claude B</button>
+            </div>
+          </div>
+          <div>
+            <label for="max_turns">Max turns</label>
+            <input type="number" id="max_turns" min="2" max="20">
+          </div>
+          <div>
+            <label for="effort">Thinking effort</label>
+            <select id="effort"></select>
+          </div>
+          <div>
+            <label for="budget">Spending cap ($)</label>
+            <input type="number" id="budget" step="any" min="0.05">
+          </div>
+        </div>
+        <button type="submit" class="primary" id="start-btn">Start fact-check</button>
+        <p id="form-error" class="error"></p>
+        <p id="mock-note" class="muted small" hidden>Demo mode: fake answers, no API calls.</p>
+      </form>
+    </section>
+
+    <!-- Debate view -->
+    <section id="debate-view" hidden>
+      <header class="debate-head">
+        <div class="q" id="d-question"></div>
+        <div class="meta">
+          <span id="d-status" class="badge"></span>
+          <span id="d-cost" class="muted"></span>
+        </div>
+        <div id="d-files" class="small muted"></div>
+      </header>
+      <div id="messages"></div>
+      <div id="final"></div>
+      <footer id="controls">
+        <form id="note-form">
+          <input id="note" placeholder="Add a note for both AIs (e.g. “use 2025 figures”)…" autocomplete="off">
+          <button type="submit">Send</button>
+        </form>
+        <button id="stop-btn" class="danger">Stop</button>
+      </footer>
+    </section>
+  </main>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

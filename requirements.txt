@@ -1,0 +1,4 @@
+anthropic==2.9.0
+fastapi==0.163.1
+uvicorn[standard]==0.54.0
+python-multipart==0.0.34
