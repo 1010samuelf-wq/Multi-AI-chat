@@ -119,3 +119,27 @@ def test_turn_steps_are_saved(client):
     assert kinds[:2] == ["thinking", "text"]
     assert "tool_call" in kinds and "tool_result" in kinds
     assert any("VERDICT" in s.get("text", "") for s in ends[0]["steps"] if s["kind"] == "text")
+
+
+def test_followup_api(client):
+    login(client, "admin", "admin-pass-123")
+    d = client.post("/api/debates", json={"question": "first", "max_turns": 3}).json()["id"]
+    for _ in range(60):
+        if client.get(f"/api/debates/{d}").json()["status"] != "running":
+            break
+        time.sleep(0.2)
+    r = client.post(f"/api/debates/{d}/followup", json={"question": "second", "max_turns": 3})
+    assert r.status_code == 200 and r.json()["id"] == d
+    # Can't stack a follow-up on a running round
+    assert client.post(f"/api/debates/{d}/followup", json={"question": "third"}).status_code == 409
+    other = TestClient(client.app)
+    client.post("/api/users", json={"username": "omar", "password": "omar-pass-1"})
+    login(other, "omar", "omar-pass-1")
+    assert other.post(f"/api/debates/{d}/followup", json={"question": "x"}).status_code == 404
+    for _ in range(60):
+        if client.get(f"/api/debates/{d}").json()["status"] != "running":
+            break
+        time.sleep(0.2)
+    from app import store
+    types = [e["type"] for e in store.get_events(d)]
+    assert types.count("end") == 2 and "followup" in types

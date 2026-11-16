@@ -247,7 +247,7 @@ function setComposer(status) {
   $("file-input").parentElement.hidden = running;
   if (running) $("options").hidden = true;
   $("input").placeholder = running ? "Message both AIs (they'll see it on their next turn)…"
-    : state.current ? "Ask a new question…" : "Ask a question…";
+    : state.current ? "Ask a follow-up (they remember this chat)…" : "Ask a question…";
 }
 
 async function onSend(e) {
@@ -259,6 +259,17 @@ async function onSend(e) {
   try {
     if (state.status === "running" && state.current) {
       await post(`/api/debates/${state.current}/note`, { text });
+    } else if (state.current) {
+      // A follow-up in this chat: keep what's on screen and stream the new round.
+      const id = state.current;
+      await post(`/api/debates/${id}/followup`, { question: text, ...readOptions(), files: state.files });
+      state.files = [];
+      renderFiles();
+      $("options").hidden = true;
+      setTop($("top-title").textContent, "running", null);
+      setComposer("running");
+      listen(id, state.lastSeq);
+      loadHistory();
     } else {
       const { id } = await post("/api/debates", { question: text, ...readOptions(), files: state.files });
       state.files = [];
@@ -332,13 +343,24 @@ async function openChat(id) {
   }
   setTop(d.question, d.status, d.cost_usd);
   setComposer(d.status);
-  const src = new EventSource(`/api/debates/${id}/events`);
+  state.lastSeq = -1;
+  listen(id, -1);
+}
+
+function listen(id, after) {
+  closeStream();
+  const src = new EventSource(`/api/debates/${id}/events?after=${after}`);
   state.source = src;
   src.onmessage = (m) => {
     if (state.current !== id) return;
     const ev = JSON.parse(m.data);
+    if (typeof ev.seq === "number") {
+      if (ev.seq <= state.lastSeq) return; // already shown
+      state.lastSeq = ev.seq;
+    }
     handle(ev);
-    if (ev.type === "end" || ev.type === "replay_done") { src.close(); loadHistory(); }
+    // A chat with follow-ups has several "end" events; the server says when it's done.
+    if (ev.type === "replay_done") { src.close(); loadHistory(); }
   };
 }
 
@@ -359,12 +381,12 @@ function addRow(html) {
 
 function handle(ev) {
   switch (ev.type) {
-    case "start": {
+    case "start": case "followup": {
       state.agents = ev.agents;
       const files = (ev.files || []).map((f) => f.filename).join(", ");
       addRow(`<div class="row-me"><div class="bubble-me">${esc(ev.question)}${files ? `<div class="files-note">📎 ${esc(files)}</div>` : ""}</div></div>`);
       const a = ev.agents;
-      addRow(`<div class="sys">Claude A is ${esc(a.A.label)} · Claude B is ${esc(a.B.label)} · ${esc(a[ev.order[0]].name)} answers first</div>`);
+      addRow(`<div class="sys">${ev.type === "followup" ? "Follow-up · " : ""}Claude A is ${esc(a.A.label)} · Claude B is ${esc(a.B.label)} · ${esc(a[ev.order[0]].name)} answers first</div>`);
       break;
     }
     case "turn_start": startTurn(ev); break;
@@ -382,13 +404,12 @@ function handle(ev) {
       setTop($("top-title").textContent, ev.status, ev.total_cost);
       setComposer(ev.status);
       const good = ev.status === "agreed";
-      $("final").innerHTML = `
+      addRow(`
         <div class="final-card ${good ? "" : "warn"}">
           <h3>${good ? "✓ They agree" : esc(STATUS_LABEL[ev.status] || ev.status)}</h3>
           <p class="small muted">${esc(ev.message)}</p>
           ${ev.final_answer ? `<div class="step-text">${md(ev.final_answer)}</div>` : ""}
-        </div>`;
-      scrollDown();
+        </div>`);
       break;
     }
   }
