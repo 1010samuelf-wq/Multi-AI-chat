@@ -176,41 +176,51 @@ class ClaudeRunner:
     async def _handle_block(self, agent, b, emit, sources, files):
         bt = b.type
         if bt == "server_tool_use":
-            await emit({"type": "tool_call", "agent": agent.key, "name": b.name, "input": b.input})
+            await emit({"type": "tool_call", "agent": agent.key, "name": b.name, "input": b.input,
+                        "id": b.id})
         elif bt == "web_search_tool_result":
             content = b.content
             if isinstance(content, list):
                 found = [{"url": r.url, "title": r.title} for r in content]
                 for r in found:
                     sources.setdefault(r["url"], r["title"])
-                await emit({"type": "tool_result", "agent": agent.key, "name": "web_search", "results": found})
+                await emit({"type": "tool_result", "agent": agent.key, "name": "web_search",
+                            "results": found, "tool_use_id": b.tool_use_id})
             else:
                 await emit({"type": "tool_result", "agent": agent.key, "name": "web_search",
-                            "error": getattr(content, "error_code", "error")})
+                            "error": getattr(content, "error_code", "error"),
+                            "tool_use_id": b.tool_use_id})
         elif bt == "web_fetch_tool_result":
             content = b.content
             url = getattr(content, "url", None)
             err = getattr(content, "error_code", None)
             if url:
                 sources.setdefault(url, url)
-            await emit({"type": "tool_result", "agent": agent.key, "name": "web_fetch", "url": url, "error": err})
-        elif bt == "bash_code_execution_tool_result":
+            await emit({"type": "tool_result", "agent": agent.key, "name": "web_fetch", "url": url,
+                        "error": err, "tool_use_id": b.tool_use_id})
+        elif bt in ("bash_code_execution_tool_result", "code_execution_tool_result"):
             c = b.content
-            if getattr(c, "type", "") == "bash_code_execution_result":
+            ctype = getattr(c, "type", "")
+            if ctype in ("bash_code_execution_result", "code_execution_result",
+                         "encrypted_code_execution_result"):
                 new_files = []
                 for out in c.content or []:
                     fid = getattr(out, "file_id", None)
                     if fid:
                         new_files.append(await self._file_info(fid))
                 files.extend(new_files)
+                stdout = getattr(c, "stdout", None)
                 await emit({"type": "tool_result", "agent": agent.key, "name": "code",
-                            "stdout": _short(c.stdout), "stderr": _short(c.stderr, 600),
-                            "return_code": c.return_code})
+                            "stdout": _short(stdout) if stdout is not None
+                            else "(Anthropic keeps this output private; Claude used it to filter search results.)",
+                            "stderr": _short(c.stderr, 600), "return_code": c.return_code,
+                            "tool_use_id": b.tool_use_id})
                 for f in new_files:
                     await emit({"type": "file", "agent": agent.key, **f})
             else:
                 await emit({"type": "tool_result", "agent": agent.key, "name": "code",
-                            "error": getattr(c, "error_code", "error")})
+                            "error": getattr(c, "error_code", "error"),
+                            "tool_use_id": b.tool_use_id})
         elif bt == "text":
             for c in getattr(b, "citations", None) or []:
                 url = getattr(c, "url", None)
@@ -254,11 +264,18 @@ class MockRunner:
 
         await say("thinking", "The question needs a source. I'll search first, then check the number with code.")
         await say("delta", "Let me look this up.")
+        tag = f"{agent.key}{n}"
+        await emit({"type": "tool_call", "agent": agent.key, "name": "code_execution",
+                    "input": {"code": "r = await web_search({'query': 'mock search'})\nprint(len(r))"},
+                    "id": f"c{tag}"})
         await emit({"type": "tool_call", "agent": agent.key, "name": "web_search",
-                    "input": {"query": "mock search"}})
+                    "input": {"query": "mock search"}, "id": f"s{tag}"})
         await asyncio.sleep(0.2)
         found = [{"url": "https://example.com/source", "title": "Example source"}]
-        await emit({"type": "tool_result", "agent": agent.key, "name": "web_search", "results": found})
+        await emit({"type": "tool_result", "agent": agent.key, "name": "web_search", "results": found,
+                    "tool_use_id": f"s{tag}"})
+        await emit({"type": "tool_result", "agent": agent.key, "name": "code", "stdout": "1",
+                    "stderr": "", "return_code": 0, "tool_use_id": f"c{tag}"})
         await emit({"type": "tool_call", "agent": agent.key, "name": "bash_code_execution",
                     "input": {"command": "python -c 'print(6*7 - (0 if " + str(first_turn_overall) + " else 1))'"}})
         await asyncio.sleep(0.2)

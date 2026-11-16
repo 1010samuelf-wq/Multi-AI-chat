@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -31,7 +32,7 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="Multi-AI Fact Check", lifespan=lifespan)
-registry = Registry()
+registry = Registry(linger=float(os.environ.get("LIVE_LINGER_SECONDS", "120")))
 _runner = None
 _runner_key = None
 

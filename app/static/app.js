@@ -421,6 +421,7 @@ function startTurn(ev) {
 function addStep(t, step) {
   const box = t.el.querySelector(".steps");
   const last = t.steps[t.steps.length - 1];
+  if (step.kind === "text" || step.kind === "thinking") t.gotText = true;
   if ((step.kind === "text" || step.kind === "thinking") && last && last.kind === step.kind) {
     last.text += step.text;
     paintSoon(last);
@@ -428,8 +429,10 @@ function addStep(t, step) {
   }
   if (step.kind === "tool_result") {
     // Attach the result to its call when there is one.
-    const call = [...t.steps].reverse().find((s) => s.kind === "tool_call" && !s.result);
-    if (call && sameTool(call.name, step.name)) {
+    const call = step.tool_use_id
+      ? t.steps.find((s) => s.kind === "tool_call" && s.id === step.tool_use_id)
+      : [...t.steps].reverse().find((s) => s.kind === "tool_call" && !s.result && sameTool(s.name, step.name));
+    if (call && !call.result) {
       call.result = step;
       call.node.outerHTML = toolHtml(call);
       call.node = box.querySelector(`[data-i="${call.i}"]`);
@@ -519,10 +522,17 @@ function endTurn(ev) {
   const key = `${ev.agent}-${ev.turn}`;
   let t = state.turns[key];
   if (!t) t = startTurn({ ...ev, name: state.agents[ev.agent] ? state.agents[ev.agent].name : `Claude ${ev.agent}` });
-  if (!t.steps.length && !t.el.querySelector(".file-chip")) {
-    // Replaying a saved chat: rebuild the turn from its saved steps.
-    for (const s of ev.steps || []) addStep(t, s);
-    if (!(ev.steps || []).length && ev.text) addStep(t, { kind: "text", text: ev.text });
+  if (!t.gotText) {
+    // A reopened chat: the live text isn't replayed, so rebuild the turn.
+    if (ev.steps && ev.steps.length) {
+      // Newer chats saved the whole process with the turn.
+      t.steps = [];
+      t.el.querySelector(".steps").innerHTML = "";
+      for (const s of ev.steps) addStep(t, s);
+    } else if (ev.text) {
+      // Older chats saved only the reply: show it after the tool steps.
+      addStep(t, { kind: "text", text: ev.text });
+    }
   }
   t.el.classList.remove("typing");
   if (state.open === t) state.open = null;
