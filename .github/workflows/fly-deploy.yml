@@ -97,8 +97,10 @@ jobs:
           flyctl logs --app "$APP" --no-tail | tail -50
           exit 1
 
-      - name: Check the password gate is on
+      - name: Check that sign-in is required
         run: |
-          code=$(curl -s -o /dev/null -w "%{http_code}" "https://$APP.fly.dev/")
-          echo "Home page without password: HTTP $code (expected 401)"
-          [ "$code" = "401" ]
+          home=$(curl -s -o /dev/null -w "%{http_code}" "https://$APP.fly.dev/")
+          data=$(curl -s -o /dev/null -w "%{http_code}" "https://$APP.fly.dev/api/debates")
+          echo "Sign-in page: HTTP $home (expected 200)"
+          echo "Chats without signing in: HTTP $data (expected 401)"
+          [ "$home" = "200" ] && [ "$data" = "401" ]
