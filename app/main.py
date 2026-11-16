@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from . import settings as app_settings
 from . import store
 from .config import (APP_PASSWORD, DEFAULTS, EFFORTS, MAX_BUDGET_LIMIT, MAX_TURNS_LIMIT,
                      MOCK_LLM, MODELS)
@@ -26,12 +27,21 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 app = FastAPI(title="Multi-AI Fact Check")
 registry = Registry()
 _runner = None
+_runner_key = None
 
 
 def runner():
-    global _runner
-    if _runner is None:
-        _runner = MockRunner() if MOCK_LLM else ClaudeRunner()
+    """The API client, rebuilt whenever the saved key changes."""
+    global _runner, _runner_key
+    if MOCK_LLM:
+        if _runner is None:
+            _runner = MockRunner()
+        return _runner
+    key, _ = app_settings.get_api_key()
+    if not key:
+        raise HTTPException(400, "Add your Claude API key on the Settings page first.")
+    if _runner is None or key != _runner_key:
+        _runner, _runner_key = ClaudeRunner(key), key
     return _runner
 
 
@@ -70,6 +80,40 @@ async def config():
     return {"models": {k: v["label"] for k, v in MODELS.items()}, "defaults": DEFAULTS,
             "efforts": EFFORTS, "max_turns_limit": MAX_TURNS_LIMIT,
             "max_budget_limit": MAX_BUDGET_LIMIT, "mock": MOCK_LLM}
+
+
+@app.get("/api/settings")
+async def get_settings():
+    key, source = app_settings.get_api_key()
+    return {"has_key": bool(key) or MOCK_LLM, "key_hint": app_settings.hint(key),
+            "source": source, "mock": MOCK_LLM}
+
+
+class KeyIn(BaseModel):
+    anthropic_api_key: str = Field(min_length=10, max_length=500)
+
+
+@app.post("/api/settings/key")
+async def save_key(body: KeyIn):
+    import anthropic
+
+    key = body.anthropic_api_key.strip()
+    try:
+        await ClaudeRunner(key).check_key()
+    except anthropic.AuthenticationError:
+        raise HTTPException(400, "Anthropic rejected this key. Check that you copied all of it.")
+    except anthropic.PermissionDeniedError:
+        raise HTTPException(400, "This key doesn't have permission to use the models.")
+    except anthropic.APIError as e:
+        raise HTTPException(502, f"Couldn't check the key with Anthropic: {e}")
+    app_settings.save_api_key(key)
+    return {"ok": True, "key_hint": app_settings.hint(key)}
+
+
+@app.delete("/api/settings/key")
+async def remove_key():
+    app_settings.delete_api_key()
+    return {"ok": True}
 
 
 class FileRef(BaseModel):

@@ -10,6 +10,7 @@ Ask a question once. Two Claude models take turns: one answers, the other checks
 - **Notes**: type a note during a debate and both AIs get it on their next turn.
 - **History**: past debates are saved and can be reopened.
 - **Password** protection for the whole site.
+- **Settings page** where you paste your Claude API key. It's checked with Anthropic, saved on the app's private storage, and never shown again.
 
 ## How a debate runs
 
@@ -22,7 +23,17 @@ Turn 3  the first one checks that reply               → AGREE ends it, DISAGRE
 
 Each AI keeps its own conversation and its own sandbox. It sees the other's reply text and the sources it cited, and verifies them itself.
 
-## Deploy on Fly.io
+## Deploy on Fly.io with GitHub Actions (no installs needed)
+
+1. In GitHub, open **Settings → Secrets and variables → Actions** and add two repository secrets:
+   - `FLY_API_TOKEN`: a Fly token that can create apps. Create it with `fly tokens create org` (a deploy token for one existing app can't create a new app).
+   - `APP_PASSWORD`: the password for the website.
+2. Open the **Actions** tab, choose **Deploy to Fly.io**, click **Run workflow**, and check the app name, Fly organization and region.
+3. When the run is green, the site is at `https://<app name>.fly.dev`. Open **Settings** there and paste your Claude API key.
+
+The first run creates the app and its storage volume. Later runs just redeploy.
+
+## Deploy on Fly.io from your computer
 
 You need the [Fly CLI](https://fly.io/docs/flyctl/install/) and an API key from the [Claude Console](https://platform.claude.com) (**Get API key**).
 
@@ -35,13 +46,13 @@ You need the [Fly CLI](https://fly.io/docs/flyctl/install/) and an API key from 
 2. Create the storage volume for saved debates (use the same region you chose):
 
    ```bash
-   fly volumes create debate_data --size 1 --region iad
+   fly volumes create debate_data --size 1 --region yyz
    ```
 
 3. Store your secrets. They're encrypted on Fly, never in the code:
 
    ```bash
-   fly secrets set ANTHROPIC_API_KEY=sk-ant-... APP_PASSWORD=choose-a-password
+   fly secrets set APP_PASSWORD=choose-a-password
    ```
 
 4. Deploy:
@@ -50,7 +61,7 @@ You need the [Fly CLI](https://fly.io/docs/flyctl/install/) and an API key from 
    fly deploy
    ```
 
-5. Open `https://<your-app-name>.fly.dev`. The browser asks for a password: type anything as the username, and your `APP_PASSWORD` as the password.
+5. Open `https://<your-app-name>.fly.dev`. The browser asks for a password: type anything as the username, and your `APP_PASSWORD` as the password. Then open **Settings** and paste your Claude API key.
 
 **Cost on Fly:** one `shared-cpu-1x` machine with 512 MB, always on (so a debate keeps going after you close the page), about $4–5 a month, plus about $0.15 a month for the 1 GB volume.
 
@@ -59,17 +70,16 @@ You need the [Fly CLI](https://fly.io/docs/flyctl/install/) and an API key from 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-...
 uvicorn app.main:app --reload --port 8080
 ```
 
-Open http://localhost:8080. To try the interface without spending credit, start it with `MOCK_LLM=1` and the AIs give fake answers.
+Open http://localhost:8080 and add your key under **Settings**. To try the interface without spending credit, start it with `MOCK_LLM=1` and the AIs give fake answers.
 
 ## Settings
 
 | Environment variable | What it does |
 |---|---|
-| `ANTHROPIC_API_KEY` | Your Claude API key (required unless `MOCK_LLM=1`) |
+| `ANTHROPIC_API_KEY` | Optional. Used when no key is saved on the Settings page |
 | `APP_PASSWORD` | Password for the site. Leave empty only on your own computer. |
 | `DATA_DIR` | Where the debate database is stored (`/data` on Fly) |
 | `MOCK_LLM` | `1` = demo mode with fake answers, no API calls |
@@ -104,5 +114,6 @@ app/main.py      web server: start/stop debates, live stream, uploads, downloads
 app/debate.py    the fact-check loop and the instructions given to both AIs
 app/llm.py       calls to the Claude API (streaming, tools, files, cost)
 app/store.py     SQLite storage for debates
+app/settings.py  the saved Claude API key
 app/static/      the web page
 ```

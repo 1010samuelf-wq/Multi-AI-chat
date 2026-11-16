@@ -13,6 +13,7 @@
   <aside id="sidebar">
     <div class="brand">Multi-AI Fact Check</div>
     <button id="new-btn" class="primary wide">+ New question</button>
+    <button id="settings-btn" class="wide side-link">⚙ Settings</button>
     <div class="history-title">History</div>
     <ul id="history"></ul>
   </aside>
@@ -24,6 +25,7 @@
     <section id="new-view">
       <h1>Ask once, get it fact-checked</h1>
       <p class="muted">Two Claude models take turns: one answers, the other checks it with search and code, back and forth until they agree.</p>
+      <p id="no-key" class="banner" hidden>Add your Claude API key in <a href="#settings">Settings</a> before asking a question.</p>
       <form id="new-form">
         <label for="question">Your question</label>
         <textarea id="question" rows="5" required placeholder="e.g. What were the 5 largest US banks by assets at the end of 2025? Put them in an Excel file."></textarea>
@@ -66,6 +68,23 @@
         <button type="submit" class="primary" id="start-btn">Start fact-check</button>
         <p id="form-error" class="error"></p>
         <p id="mock-note" class="muted small" hidden>Demo mode: fake answers, no API calls.</p>
+      </form>
+    </section>
+
+    <!-- Settings -->
+    <section id="settings-view" hidden>
+      <h1>Settings</h1>
+      <h2 class="h2">Claude API key</h2>
+      <p class="muted">Create a key in the Claude Console with <b>Get API key</b>, then paste it here. It's checked with Anthropic, saved on this app's private storage, and never shown again (only its last 4 characters).</p>
+      <p id="key-status"></p>
+      <form id="key-form">
+        <label for="api-key">New key</label>
+        <input type="password" id="api-key" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+        <div class="row">
+          <button type="submit" class="primary" id="key-save">Check and save</button>
+          <button type="button" id="key-remove" class="danger" hidden>Remove saved key</button>
+        </div>
+        <p id="key-msg"></p>
       </form>
     </section>
 
