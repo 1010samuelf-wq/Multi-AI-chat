@@ -78,7 +78,8 @@ def _handoff(other_name: str, result: TurnResult, verb: str) -> str:
 
 
 class Debate:
-    def __init__(self, runner, question: str, settings: dict, files: list[dict]):
+    def __init__(self, runner, question: str, settings: dict, files: list[dict],
+                 user_id: int | None = None):
         self.id = uuid.uuid4().hex[:12]
         self.runner = runner
         self.question = question
@@ -105,7 +106,12 @@ class Debate:
             )
             for k in ("A", "B")
         }
-        store.create_debate(self.id, question, {**settings, "files": files})
+        self.user_id = user_id
+        # The current turn's process, in order (text, thinking, tool use), saved
+        # with the turn so a finished chat shows everything that happened.
+        self.cur_turn: dict | None = None
+        self.cur_steps: list[dict] = []
+        store.create_debate(self.id, question, {**settings, "files": files}, user_id)
 
     # ---- events -------------------------------------------------------------
 
@@ -113,14 +119,32 @@ class Debate:
     # else is also saved so finished debates can be replayed from the database.
     LIVE_ONLY = {"delta", "thinking"}
 
+    STEP_TYPES = {"delta", "thinking", "tool_call", "tool_result", "file", "status"}
+
     async def emit(self, event: dict) -> None:
         event = {**event, "seq": self.seq, "ts": time.time()}
         self.seq += 1
         self.events.append(event)
+        if self.cur_turn is not None and event["type"] in self.STEP_TYPES:
+            self._record_step(event)
         if event["type"] not in self.LIVE_ONLY:
             store.add_event(self.id, event["seq"], event)
         async with self.cond:
             self.cond.notify_all()
+
+    def _record_step(self, ev: dict) -> None:
+        t = ev["type"]
+        last = self.cur_steps[-1] if self.cur_steps else None
+        if t in ("delta", "thinking"):
+            kind = "text" if t == "delta" else "thinking"
+            if last and last["kind"] == kind:
+                last["text"] += ev["text"]
+            else:
+                self.cur_steps.append({"kind": kind, "text": ev["text"]})
+        else:
+            step = {k: v for k, v in ev.items() if k not in ("seq", "ts", "agent")}
+            step["kind"] = t
+            self.cur_steps.append(step)
 
     # ---- loop ---------------------------------------------------------------
 
@@ -168,8 +192,15 @@ class Debate:
             other = self.agents[order[(turn + 1) % 2]]
             content = self._turn_content(turn, agent, other, last)
 
+            if turn == 0:
+                task = "Answering your question"
+            elif turn == 1:
+                task = f"Checking {other.name}'s answer"
+            else:
+                task = f"Checking {other.name}'s reply"
+            self.cur_turn, self.cur_steps = {"agent": key, "turn": turn + 1}, []
             await self.emit({"type": "turn_start", "agent": key, "turn": turn + 1,
-                             "name": agent.name, "model": agent.model})
+                             "name": agent.name, "model": agent.model, "task": task})
             result = await self.runner.run_turn(agent, content, self.emit)
             self.cost += result.cost_usd
             verdict = parse_verdict(result.text)
@@ -179,6 +210,7 @@ class Debate:
                 verdict = "DISAGREE"  # unclear or cut off: keep checking
             await self.emit({
                 "type": "turn_end", "agent": key, "turn": turn + 1, "text": result.text,
+                "steps": self._take_steps(),
                 "verdict": verdict, "sources": result.sources, "files": result.files,
                 "turn_cost": result.cost_usd, "total_cost": self.cost, "error": result.error,
             })
@@ -222,7 +254,16 @@ class Debate:
         blocks.append({"type": "text", "text": "\n\n".join(text_parts)})
         return blocks
 
+    def _take_steps(self) -> list[dict]:
+        steps, self.cur_steps, self.cur_turn = self.cur_steps, [], None
+        return steps
+
     async def _finish(self, status: str, last: TurnResult | None, message: str) -> None:
+        if self.cur_turn is not None:  # stopped mid-turn: keep what it did so far
+            turn = self.cur_turn
+            await self.emit({"type": "turn_end", **turn, "text": "", "steps": self._take_steps(),
+                             "verdict": None, "sources": [], "files": [], "turn_cost": 0,
+                             "total_cost": self.cost, "error": "Stopped before finishing."})
         self.status = status
         final = parse_answer(last.text) if last else None
         store.update_debate(self.id, status=status, cost_usd=self.cost, final_answer=final)
@@ -233,8 +274,9 @@ class Debate:
 class Registry:
     """Debates currently running in this server process."""
 
-    def __init__(self):
+    def __init__(self, linger: float = 120):
         self.active: dict[str, Debate] = {}
+        self.linger = linger
 
     def start(self, debate: Debate) -> None:
         self.active[debate.id] = debate
@@ -244,7 +286,7 @@ class Registry:
                 await debate.run()
             finally:
                 # Keep it a little while so live viewers get the final events.
-                await asyncio.sleep(120)
+                await asyncio.sleep(self.linger)
                 self.active.pop(debate.id, None)
 
         debate.task = asyncio.create_task(_run())

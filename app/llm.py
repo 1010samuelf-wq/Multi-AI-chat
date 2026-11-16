@@ -246,11 +246,24 @@ class MockRunner:
         n = len(agent.messages) // 2  # this agent's earlier turns in this debate
         agent.messages.append({"role": "user", "content": user_content})
         first_turn_overall = n == 0 and "answered:" not in str(user_content)
+
+        async def say(kind: str, text: str):
+            for i in range(0, len(text), 14):
+                await emit({"type": kind, "agent": agent.key, "text": text[i : i + 14]})
+                await asyncio.sleep(0.01)
+
+        await say("thinking", "The question needs a source. I'll search first, then check the number with code.")
+        await say("delta", "Let me look this up.")
         await emit({"type": "tool_call", "agent": agent.key, "name": "web_search",
-                     "input": {"query": "mock search"}})
-        await asyncio.sleep(0.3)
+                    "input": {"query": "mock search"}})
+        await asyncio.sleep(0.2)
         found = [{"url": "https://example.com/source", "title": "Example source"}]
         await emit({"type": "tool_result", "agent": agent.key, "name": "web_search", "results": found})
+        await emit({"type": "tool_call", "agent": agent.key, "name": "bash_code_execution",
+                    "input": {"command": "python -c 'print(6*7 - (0 if " + str(first_turn_overall) + " else 1))'"}})
+        await asyncio.sleep(0.2)
+        await emit({"type": "tool_result", "agent": agent.key, "name": "code",
+                    "stdout": "42" if first_turn_overall else "41", "stderr": "", "return_code": 0})
         if first_turn_overall:
             verdict, body = "PROPOSED", "The answer is **42**, based on the example source."
             check = ""
@@ -261,9 +274,7 @@ class MockRunner:
             verdict, body = "AGREE", "The answer is **41**."
             check = "## Check\n- ✅ 41 is correct; I re-read the source and confirmed it.\n\n"
         text = f"{check}## Answer\n{body}\n\nVERDICT: {verdict}"
-        for i in range(0, len(text), 12):
-            await emit({"type": "delta", "agent": agent.key, "text": text[i : i + 12]})
-            await asyncio.sleep(0.01)
+        await say("delta", text)
         agent.messages.append({"role": "assistant", "content": text})
         return TurnResult(text, found, [], round(random.uniform(0.01, 0.05), 4), "end_turn")
 

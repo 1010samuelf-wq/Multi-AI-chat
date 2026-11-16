@@ -2,80 +2,71 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Multi-AI Fact Check</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fact Check Chat</title>
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/vendor/marked.min.js"></script>
 <script src="/static/vendor/purify.min.js"></script>
 </head>
 <body>
-<div class="layout">
+
+<!-- Sign in -->
+<div id="login-view" class="login-wrap" hidden>
+  <form id="login-form" class="login-card">
+    <div class="logo">A<span>B</span></div>
+    <h1 id="login-title">Sign in</h1>
+    <p id="login-sub" class="muted">Fact Check Chat</p>
+    <label for="login-user">Username</label>
+    <input id="login-user" autocomplete="username" required autocapitalize="none" spellcheck="false">
+    <label for="login-pass">Password</label>
+    <input id="login-pass" type="password" autocomplete="current-password" required>
+    <button class="primary wide" id="login-btn">Sign in</button>
+    <p id="login-error" class="error"></p>
+  </form>
+</div>
+
+<div id="app" class="layout" hidden>
   <aside id="sidebar">
-    <div class="brand">Multi-AI Fact Check</div>
-    <button id="new-btn" class="primary wide">+ New question</button>
-    <button id="settings-btn" class="wide side-link">⚙ Settings</button>
-    <div class="history-title">History</div>
+    <button id="new-btn" class="new-chat">＋ New chat</button>
+    <div class="history-title">Chats</div>
     <ul id="history"></ul>
+    <div class="user-box">
+      <button id="user-btn" class="user-btn"><span class="avatar me" id="user-initial"></span><span id="user-name"></span><span class="chev">⌃</span></button>
+      <div id="user-menu" class="menu" hidden>
+        <button data-go="settings" class="admin-only">API key</button>
+        <button data-go="users" class="admin-only">Users</button>
+        <button data-go="account">Change password</button>
+        <button id="logout-btn">Sign out</button>
+      </div>
+    </div>
   </aside>
+  <div id="scrim" hidden></div>
 
   <main>
-    <button id="menu-btn" class="menu-btn" aria-label="Show history">☰</button>
+    <header class="topbar">
+      <button id="menu-btn" class="icon-btn" aria-label="Chats">☰</button>
+      <div id="top-title" class="top-title"></div>
+      <div class="top-meta"><span id="d-status" class="badge" hidden></span><span id="d-cost" class="muted small"></span></div>
+    </header>
 
-    <!-- New debate form -->
-    <section id="new-view">
-      <h1>Ask once, get it fact-checked</h1>
-      <p class="muted">Two Claude models take turns: one answers, the other checks it with search and code, back and forth until they agree.</p>
-      <p id="no-key" class="banner" hidden>Add your Claude API key in <a href="#settings">Settings</a> before asking a question.</p>
-      <form id="new-form">
-        <label for="question">Your question</label>
-        <textarea id="question" rows="5" required placeholder="e.g. What were the 5 largest US banks by assets at the end of 2025? Put them in an Excel file."></textarea>
-
-        <label>Files (optional: PDF, Excel, CSV, images…)</label>
-        <div class="files-row">
-          <input type="file" id="file-input" multiple>
-          <ul id="file-list"></ul>
+    <!-- Chat -->
+    <section id="chat-view" class="chat">
+      <div id="thread">
+        <div id="empty" class="empty">
+          <div class="logo big">A<span>B</span></div>
+          <h1>What should they fact-check?</h1>
+          <p class="muted">Two Claudes take turns: one answers, the other checks it with search and code, until they agree.</p>
+          <p id="no-key" class="banner" hidden></p>
         </div>
-
-        <div class="grid">
-          <div>
-            <label for="model_a">Claude A</label>
-            <select id="model_a"></select>
-          </div>
-          <div>
-            <label for="model_b">Claude B</label>
-            <select id="model_b"></select>
-          </div>
-          <div>
-            <label>Who answers first?</label>
-            <div class="seg" id="first">
-              <button type="button" data-v="A" class="on">Claude A</button>
-              <button type="button" data-v="B">Claude B</button>
-            </div>
-          </div>
-          <div>
-            <label for="max_turns">Max turns</label>
-            <input type="number" id="max_turns" min="2" max="20">
-          </div>
-          <div>
-            <label for="effort">Thinking effort</label>
-            <select id="effort"></select>
-          </div>
-          <div>
-            <label for="budget">Spending cap ($)</label>
-            <input type="number" id="budget" step="any" min="0.05">
-          </div>
-        </div>
-        <button type="submit" class="primary" id="start-btn">Start fact-check</button>
-        <p id="form-error" class="error"></p>
-        <p id="mock-note" class="muted small" hidden>Demo mode: fake answers, no API calls.</p>
-      </form>
+        <div id="messages"></div>
+        <div id="final"></div>
+      </div>
     </section>
 
-    <!-- Settings -->
-    <section id="settings-view" hidden>
-      <h1>Settings</h1>
-      <h2 class="h2">Claude API key</h2>
-      <p class="muted">Create a key in the Claude Console with <b>Get API key</b>, then paste it here. It's checked with Anthropic, saved on this app's private storage, and never shown again (only its last 4 characters).</p>
+    <!-- Settings pages -->
+    <section id="settings-view" class="page" hidden>
+      <h1>API key</h1>
+      <p class="muted">Everyone signed in uses this Claude API key. Create one in the Claude Console with <b>Get API key</b> and paste it here. It's checked with Anthropic, saved on this app's private storage, and never shown again (only its last 4 characters).</p>
       <p id="key-status"></p>
       <form id="key-form">
         <label for="api-key">New key</label>
@@ -88,26 +79,61 @@
       </form>
     </section>
 
-    <!-- Debate view -->
-    <section id="debate-view" hidden>
-      <header class="debate-head">
-        <div class="q" id="d-question"></div>
-        <div class="meta">
-          <span id="d-status" class="badge"></span>
-          <span id="d-cost" class="muted"></span>
-        </div>
-        <div id="d-files" class="small muted"></div>
-      </header>
-      <div id="messages"></div>
-      <div id="final"></div>
-      <footer id="controls">
-        <form id="note-form">
-          <input id="note" placeholder="Add a note for both AIs (e.g. “use 2025 figures”)…" autocomplete="off">
-          <button type="submit">Send</button>
-        </form>
-        <button id="stop-btn" class="danger">Stop</button>
-      </footer>
+    <section id="users-view" class="page" hidden>
+      <h1>Users</h1>
+      <p class="muted">Each person signs in with their own account and sees only their own chats. Everyone shares the API key.</p>
+      <table class="users"><thead><tr><th>User</th><th>Chats</th><th>Spent</th><th></th></tr></thead><tbody id="users-body"></tbody></table>
+      <h2 class="h2">Add a user</h2>
+      <form id="add-user-form" class="grid2">
+        <div><label for="nu-name">Username</label><input id="nu-name" required autocapitalize="none" spellcheck="false"></div>
+        <div><label for="nu-pass">Password (8+ characters)</label><input id="nu-pass" type="text" required autocomplete="off"></div>
+        <label class="check"><input type="checkbox" id="nu-admin"> Admin (can manage users and the API key)</label>
+        <div><button class="primary">Add user</button></div>
+      </form>
+      <p id="users-msg"></p>
     </section>
+
+    <section id="account-view" class="page" hidden>
+      <h1>Change password</h1>
+      <form id="pw-form">
+        <label for="pw-cur">Current password</label>
+        <input id="pw-cur" type="password" autocomplete="current-password" required>
+        <label for="pw-new">New password (8+ characters)</label>
+        <input id="pw-new" type="password" autocomplete="new-password" required>
+        <div class="row"><button class="primary">Save</button></div>
+        <p id="pw-msg"></p>
+      </form>
+    </section>
+
+    <!-- Composer -->
+    <footer id="composer-wrap">
+      <div id="options" class="options" hidden>
+        <div class="opt">
+          <span class="opt-label">Answers first</span>
+          <div class="seg" id="first">
+            <button type="button" data-v="A" class="on">Claude A</button>
+            <button type="button" data-v="B">Claude B</button>
+          </div>
+        </div>
+        <div class="opt"><label for="model_a" class="opt-label">Claude A</label><select id="model_a"></select></div>
+        <div class="opt"><label for="model_b" class="opt-label">Claude B</label><select id="model_b"></select></div>
+        <div class="opt"><label for="max_turns" class="opt-label">Max turns</label><input type="number" id="max_turns" min="2" max="20"></div>
+        <div class="opt"><label for="effort" class="opt-label">Thinking effort</label><select id="effort"></select></div>
+        <div class="opt"><label for="budget" class="opt-label">Spending cap ($)</label><input type="number" id="budget" step="any" min="0.05"></div>
+      </div>
+      <ul id="file-list"></ul>
+      <form id="composer" class="composer">
+        <textarea id="input" rows="1" placeholder="Ask a question…"></textarea>
+        <div class="composer-bar">
+          <label class="icon-btn" title="Attach files">📎<input type="file" id="file-input" multiple hidden></label>
+          <button type="button" id="opt-btn" class="chip" title="Options"></button>
+          <span class="spacer"></span>
+          <button type="button" id="stop-btn" class="stop" hidden>■ Stop</button>
+          <button id="send-btn" class="send" title="Send">↑</button>
+        </div>
+      </form>
+      <p id="composer-error" class="error small"></p>
+    </footer>
   </main>
 </div>
 <script src="/static/app.js"></script>
