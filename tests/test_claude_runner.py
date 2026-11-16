@@ -159,3 +159,34 @@ async def test_haiku_has_no_fallback_and_api_error_is_reported():
     result = await runner.run_turn(agent, [{"type": "text", "text": "Q"}], emit)
     assert result.error and "web search is not enabled" in result.error
     assert agent.messages == []  # history rolled back
+
+
+@pytest.mark.asyncio
+async def test_programmatic_code_results_are_reported_with_ids():
+    reply = message_events([
+        {"type": "server_tool_use", "id": "srvtoolu_c1", "name": "code_execution",
+         "input": {"code": "r = await web_search({'query': 'x'})"}},
+        {"type": "code_execution_tool_result", "tool_use_id": "srvtoolu_c1",
+         "content": {"type": "code_execution_result", "stdout": "found 3", "stderr": "",
+                     "return_code": 0, "content": []}},
+        {"type": "server_tool_use", "id": "srvtoolu_c2", "name": "code_execution",
+         "input": {"code": "filter()"}},
+        {"type": "code_execution_tool_result", "tool_use_id": "srvtoolu_c2",
+         "content": {"type": "encrypted_code_execution_result", "encrypted_stdout": "zzz",
+                     "stderr": "", "return_code": 0, "content": []}},
+        {"type": "text", "text": "## Answer\nDone.\n\nVERDICT: PROPOSED"},
+    ])
+    runner = make_runner(FakeAPI([reply]))
+    agent = AgentState("A", "Claude A", "claude-opus-5-5", "high", "sys")
+    events = []
+
+    async def emit(e):
+        events.append(e)
+
+    await runner.run_turn(agent, [{"type": "text", "text": "Q"}], emit)
+    calls = [e for e in events if e["type"] == "tool_call"]
+    results = [e for e in events if e["type"] == "tool_result"]
+    assert [c["id"] for c in calls] == ["srvtoolu_c1", "srvtoolu_c2"]
+    assert [r["tool_use_id"] for r in results] == ["srvtoolu_c1", "srvtoolu_c2"]
+    assert results[0]["stdout"] == "found 3"
+    assert "private" in results[1]["stdout"]
