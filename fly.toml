@@ -1,6 +1,6 @@
 # Fly.io config. `fly launch --copy-config --no-deploy` lets you pick the app name and region.
 app = "multi-ai-factcheck"
-primary_region = "iad"
+primary_region = "yyz"
 
 [build]
 

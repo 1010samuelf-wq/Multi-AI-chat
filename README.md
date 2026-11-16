@@ -46,7 +46,7 @@ You need the [Fly CLI](https://fly.io/docs/flyctl/install/) and an API key from 
 2. Create the storage volume for saved debates (use the same region you chose):
 
    ```bash
-   fly volumes create debate_data --size 1 --region iad
+   fly volumes create debate_data --size 1 --region yyz
    ```
 
 3. Store your secrets. They're encrypted on Fly, never in the code:

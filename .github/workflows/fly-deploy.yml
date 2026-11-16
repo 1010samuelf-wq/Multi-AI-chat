@@ -19,8 +19,8 @@ on:
         default: "personal"
         required: true
       region:
-        description: "Fly region (iad = Virginia, ord = Chicago, lhr = London, fra = Frankfurt…)"
-        default: "iad"
+        description: "Fly region (yyz = Toronto, iad = Virginia, lhr = London…). Must match the volume's region."
+        default: "yyz"
         required: true
 
 concurrency:
